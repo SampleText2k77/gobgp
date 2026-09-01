@@ -167,10 +167,12 @@ message WatchEventResponse {
     }
     Type type = 1;
     Peer peer = 2;
+    bytes uuid = 3;
   }
 
   message TableEvent {
     repeated Path paths = 2;
+    bytes uuid = 3;
   }
 
   oneof event {

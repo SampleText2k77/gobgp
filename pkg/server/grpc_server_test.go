@@ -658,3 +658,199 @@ func TestNewPrefixFromApiStructRTC(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, p.Prefix.Contains(full.Prefix.Addr()))
 }
+
+func TestGRPCWatchEventResponseEventUuid(t *testing.T) {
+	assert := assert.New(t)
+
+	socketName, err := os.MkdirTemp("", "gobgp-grpc-test-*")
+	assert.NoError(err)
+	t.Cleanup(func() {
+		_ = os.RemoveAll(socketName)
+	})
+	socketAddr := "unix://" + socketName + "/gobgp.sock"
+
+	// Start BGP Server 1
+	s1 := NewBgpServer(GrpcListenAddress(socketAddr))
+	go s1.Serve()
+	defer s1.Stop()
+
+	err = s1.StartBgp(context.Background(), &api.StartBgpRequest{
+		Global: &api.Global{
+			Asn:        1,
+			RouterId:   "1.1.1.1",
+			ListenPort: 48000,
+		},
+	})
+	assert.NoError(err)
+	defer s1.StopBgp(context.Background(), &api.StopBgpRequest{})
+
+	peer1 := &api.Peer{
+		Conf: &api.PeerConf{
+			NeighborAddress: "127.0.0.1",
+			PeerAsn:         2,
+		},
+		Transport: &api.Transport{
+			PassiveMode: true,
+		},
+		AfiSafis: []*api.AfiSafi{
+			{
+				Config: &api.AfiSafiConfig{
+					Family: &api.Family{
+						Afi:  api.Family_AFI_IP,
+						Safi: api.Family_SAFI_UNICAST,
+					},
+				},
+			},
+		},
+	}
+	err = s1.AddPeer(context.Background(), &api.AddPeerRequest{Peer: peer1})
+	assert.NoError(err)
+
+	s2 := NewBgpServer()
+	go s2.Serve()
+	defer s2.Stop()
+
+	// Start BGP Server 2
+	err = s2.StartBgp(context.Background(), &api.StartBgpRequest{
+		Global: &api.Global{
+			Asn:        2,
+			RouterId:   "2.2.2.2",
+			ListenPort: -1,
+		},
+	})
+	assert.NoError(err)
+	defer s2.StopBgp(context.Background(), &api.StopBgpRequest{})
+
+	peer2 := &api.Peer{
+		Conf: &api.PeerConf{
+			NeighborAddress: "127.0.0.1",
+			PeerAsn:         1,
+		},
+		Transport: &api.Transport{
+			RemotePort: 48000,
+		},
+		AfiSafis: []*api.AfiSafi{
+			{
+				Config: &api.AfiSafiConfig{
+					Family: &api.Family{
+						Afi:  api.Family_AFI_IP,
+						Safi: api.Family_SAFI_UNICAST,
+					},
+				},
+			},
+		},
+	}
+	err = s2.AddPeer(context.Background(), &api.AddPeerRequest{Peer: peer2})
+	assert.NoError(err)
+
+	addPath := func(prefix string) {
+		family := &api.Family{
+			Afi:  api.Family_AFI_IP,
+			Safi: api.Family_SAFI_UNICAST,
+		}
+		nlri := &api.NLRI{Nlri: &api.NLRI_Prefix{Prefix: &api.IPAddressPrefix{
+			Prefix:    prefix,
+			PrefixLen: 24,
+		}}}
+		attrs := []*api.Attribute{
+			{
+				Attr: &api.Attribute_Origin{Origin: &api.OriginAttribute{
+					Origin: 0,
+				}},
+			},
+			{
+				Attr: &api.Attribute_NextHop{NextHop: &api.NextHopAttribute{
+					NextHop: "10.0.0.1",
+				}},
+			},
+		}
+		_, err = s2.AddPath(apiutil.AddPathRequest{
+			Paths: []*apiutil.Path{
+				mustApi2apiutilPath(&api.Path{
+					Family: family,
+					Nlri:   nlri,
+					Pattrs: attrs,
+				}),
+			},
+		})
+		assert.NoError(err)
+	}
+
+	// Add 4 paths that should be received during initial dump
+	for _, prefix := range []string{"10.0.1.0", "10.0.2.0", "10.0.3.0", "10.0.4.0"} {
+		addPath(prefix)
+	}
+
+	conn, err := grpc.NewClient(socketAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	assert.NoError(err)
+	client := api.NewGoBgpServiceClient(conn)
+
+	establishedWg := GRPCwaitEstablished(t, client, bgp.RF_IPv4_UC)
+	establishedWg.Wait()
+
+	watchCtx, watchCancel := context.WithCancel(context.Background())
+	resp, err := client.WatchEvent(watchCtx, &api.WatchEventRequest{
+		Table: &api.WatchEventRequest_Table{
+			Filters: []*api.WatchEventRequest_Table_Filter{
+				{
+					Type:        api.WatchEventRequest_Table_Filter_TYPE_ADJIN,
+					PeerAddress: "127.0.0.1",
+					Init:        true,
+				},
+			},
+		},
+		// Note the batch size
+		BatchSize: 1,
+	})
+	assert.NoError(err, "failed to start watch event")
+
+	count := 0
+	eventUuid := uuid.Nil
+	waitCh := make(chan any)
+
+	go func() {
+		for {
+			select {
+			case <-watchCtx.Done():
+				return
+			default:
+				r, err := resp.Recv()
+				assert.NoError(err)
+
+				t := r.GetTable()
+				assert.NotNil(t)
+
+				received := len(t.GetPaths())
+				count += received
+
+				if received > 0 {
+					newEventUuid, err := uuid.FromBytes(t.GetUuid())
+					assert.NoError(err)
+					assert.NotEqual(newEventUuid, uuid.Nil)
+
+					if eventUuid == uuid.Nil {
+						eventUuid = newEventUuid
+					}
+
+					if count == 5 {
+						assert.NotEqual(eventUuid, newEventUuid)
+					} else {
+						assert.Equal(eventUuid, newEventUuid)
+					}
+				}
+
+				if count == 4 {
+					// When first four paths have been received, add another
+					// one. This one is expected to have different event UUID
+					addPath("10.0.5.0")
+				} else if count == 5 {
+					watchCancel()
+					close(waitCh)
+				}
+			}
+		}
+	}()
+
+	<-waitCh
+	assert.Equal(5, count)
+}

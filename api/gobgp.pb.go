@@ -13469,6 +13469,7 @@ type WatchEventResponse_PeerEvent struct {
 	state         protoimpl.MessageState            `protogen:"open.v1"`
 	Type          WatchEventResponse_PeerEvent_Type `protobuf:"varint,1,opt,name=type,proto3,enum=api.WatchEventResponse_PeerEvent_Type" json:"type,omitempty"`
 	Peer          *Peer                             `protobuf:"bytes,2,opt,name=peer,proto3" json:"peer,omitempty"`
+	Uuid          []byte                            `protobuf:"bytes,3,opt,name=uuid,proto3" json:"uuid,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -13517,9 +13518,17 @@ func (x *WatchEventResponse_PeerEvent) GetPeer() *Peer {
 	return nil
 }
 
+func (x *WatchEventResponse_PeerEvent) GetUuid() []byte {
+	if x != nil {
+		return x.Uuid
+	}
+	return nil
+}
+
 type WatchEventResponse_TableEvent struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Paths         []*Path                `protobuf:"bytes,2,rep,name=paths,proto3" json:"paths,omitempty"`
+	Uuid          []byte                 `protobuf:"bytes,3,opt,name=uuid,proto3" json:"uuid,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -13557,6 +13566,13 @@ func (*WatchEventResponse_TableEvent) Descriptor() ([]byte, []int) {
 func (x *WatchEventResponse_TableEvent) GetPaths() []*Path {
 	if x != nil {
 		return x.Paths
+	}
+	return nil
+}
+
+func (x *WatchEventResponse_TableEvent) GetUuid() []byte {
+	if x != nil {
+		return x.Uuid
 	}
 	return nil
 }
@@ -13751,22 +13767,24 @@ const file_api_gobgp_proto_rawDesc = "" +
 	"\n" +
 	"TYPE_ADJIN\x10\x02\x12\x14\n" +
 	"\x10TYPE_POST_POLICY\x10\x03\x12\f\n" +
-	"\bTYPE_EOR\x10\x04\"\xfd\x02\n" +
+	"\bTYPE_EOR\x10\x04\"\xa5\x03\n" +
 	"\x12WatchEventResponse\x127\n" +
 	"\x04peer\x18\x02 \x01(\v2!.api.WatchEventResponse.PeerEventH\x00R\x04peer\x12:\n" +
-	"\x05table\x18\x03 \x01(\v2\".api.WatchEventResponse.TableEventH\x00R\x05table\x1a\xb9\x01\n" +
+	"\x05table\x18\x03 \x01(\v2\".api.WatchEventResponse.TableEventH\x00R\x05table\x1a\xcd\x01\n" +
 	"\tPeerEvent\x12:\n" +
 	"\x04type\x18\x01 \x01(\x0e2&.api.WatchEventResponse.PeerEvent.TypeR\x04type\x12\x1d\n" +
-	"\x04peer\x18\x02 \x01(\v2\t.api.PeerR\x04peer\"Q\n" +
+	"\x04peer\x18\x02 \x01(\v2\t.api.PeerR\x04peer\x12\x12\n" +
+	"\x04uuid\x18\x03 \x01(\fR\x04uuid\"Q\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\r\n" +
 	"\tTYPE_INIT\x10\x01\x12\x14\n" +
 	"\x10TYPE_END_OF_INIT\x10\x02\x12\x0e\n" +
 	"\n" +
-	"TYPE_STATE\x10\x03\x1a-\n" +
+	"TYPE_STATE\x10\x03\x1aA\n" +
 	"\n" +
 	"TableEvent\x12\x1f\n" +
-	"\x05paths\x18\x02 \x03(\v2\t.api.PathR\x05pathsB\a\n" +
+	"\x05paths\x18\x02 \x03(\v2\t.api.PathR\x05paths\x12\x12\n" +
+	"\x04uuid\x18\x03 \x01(\fR\x04uuidB\a\n" +
 	"\x05event\"/\n" +
 	"\x0eAddPeerRequest\x12\x1d\n" +
 	"\x04peer\x18\x01 \x01(\v2\t.api.PeerR\x04peer\"\x11\n" +

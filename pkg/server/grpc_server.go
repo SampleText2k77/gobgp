@@ -382,37 +382,48 @@ func (s *server) watchEvent(ctx context.Context, r *api.WatchEventRequest, fn fu
 	if len(opts) == 0 {
 		return status.Errorf(codes.InvalidArgument, "no events to watch")
 	}
-	simpleSend := func(paths []*api.Path, when time.Time) {
-		fn(&api.WatchEventResponse{Event: &api.WatchEventResponse_Table{Table: &api.WatchEventResponse_TableEvent{Paths: paths}}}, when)
+	simpleSend := func(paths []*api.Path, when time.Time, eventUuid uuid.UUID) {
+		fn(&api.WatchEventResponse{
+			Event: &api.WatchEventResponse_Table{
+				Table: &api.WatchEventResponse_TableEvent{
+					Paths: paths,
+					Uuid:  eventUuid[:],
+				},
+			},
+		}, when)
 	}
 	err := s.bgpServer.WatchEvent(ctx, WatchEventMessageCallbacks{
 		OnPathUpdate: func(pathList []*apiutil.Path, timestamp time.Time) {
+			eventUuid, _ := uuid.NewRandom()
 			paths := make([]*api.Path, 0, r.BatchSize)
 			for _, path := range pathList {
 				paths = append(paths, toPathApi(path, false, false, false))
 				if r.BatchSize > 0 && len(paths) > int(r.BatchSize) {
-					simpleSend(paths, timestamp)
+					simpleSend(paths, timestamp, eventUuid)
 					paths = make([]*api.Path, 0, r.BatchSize)
 				}
 			}
-			simpleSend(paths, timestamp)
+			simpleSend(paths, timestamp, eventUuid)
 		},
 		OnBestPath: func(pathList []*apiutil.Path, timestamp time.Time) {
+			eventUuid, _ := uuid.NewRandom()
 			pl := make([]*api.Path, 0, r.BatchSize)
 			for _, path := range pathList {
 				pl = append(pl, toPathApi(path, false, false, false))
 				if r.BatchSize > 0 && len(pl) > int(r.BatchSize) {
-					simpleSend(pl, timestamp)
+					simpleSend(pl, timestamp, eventUuid)
 					pl = make([]*api.Path, 0, r.BatchSize)
 				}
 			}
-			simpleSend(pl, timestamp)
+			simpleSend(pl, timestamp, eventUuid)
 		},
 		OnPathEor: func(path *apiutil.Path, timestamp time.Time) {
+			eventUuid, _ := uuid.NewRandom()
 			p := toPathApi(path, false, false, false)
-			simpleSend([]*api.Path{p}, timestamp)
+			simpleSend([]*api.Path{p}, timestamp, eventUuid)
 		},
 		OnPeerUpdate: func(peer *apiutil.WatchEventMessage_PeerEvent, timestamp time.Time) {
+			eventUuid, _ := uuid.NewRandom()
 			p := peer.Peer
 			remoteCaps, err := apiutil.MarshalCapabilities(p.State.RemoteCap)
 			if err != nil {
@@ -451,6 +462,7 @@ func (s *server) watchEvent(ctx context.Context, r *api.WatchEventRequest, fn fu
 								RemotePort:   p.Transport.RemotePort,
 							},
 						},
+						Uuid: eventUuid[:],
 					},
 				},
 			}, timestamp)
